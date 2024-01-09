@@ -1,0 +1,58 @@
+name: releaser
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+
+jobs:
+  build-test:
+    runs-on: ubuntu-20.04
+    steps:
+      - name: Get the version
+        id: get_version
+        run: echo "tag=${GITHUB_REF/refs\/tags\//}" >> $GITHUB_OUTPUT
+      - uses: actions/checkout@v3
+        with:
+          submodules: recursive
+      - name: setup
+        run: |
+          sudo apt install -y curl tar xz-utils make
+      - name: Build
+        run: |
+          mkdir -p build/tools
+          cd build/tools
+
+          curl -OL https://github.com/mstorsjo/llvm-mingw/releases/download/20231128/llvm-mingw-20231128-ucrt-ubuntu-20.04-x86_64.tar.xz
+          tar xf $(ls -1 | grep ^llvm-mingw-.*\.tar\.xz) && mv $(ls -1d */ | grep ^llvm-mingw- | sed 's/\///') llvm-mingw
+          export PATH=$PWD/llvm-mingw/bin:$PATH
+
+          cd ../..
+
+          for arch in i686 x86_64 armv7 aarch64; do
+            cp $(which ${arch}-w64-mingw32-strip) $(which ${arch}-w64-mingw32-strip | sed 's/[^/]\+$/strip/')
+            make CC=${arch}-w64-mingw32-clang AR="${arch}-w64-mingw32-ar rcu" RANLIB="${arch}-w64-mingw32-strip --strip-unneeded" mingw
+            make install INSTALL_TOP=$PWD/build/${arch} TO_BIN="lua.exe luac.exe lua51.dll"
+            make clean
+            cp COPYRIGHT build/${arch}
+            rm $(which ${arch}-w64-mingw32-strip | sed 's/[^/]\+$/strip/')
+          done
+      - name: Zip
+        run: |
+          mkdir -p release
+          for arch in i686 x86_64 armv7 aarch64; do
+            cd build/${arch} && zip -r ../../release/lua_${{ steps.get_version.outputs.tag }}_${arch}.zip * && cd ../..
+          done
+      - name: Create Release
+        id: create_release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.get_version.outputs.tag }}
+          draft: false
+          prerelease: false
+          files: release/*
+          body: |
+            - [lua_${{ steps.get_version.outputs.tag }}_i686.zip](https://github.com/oov/lua-5.1.5/releases/download/${{ steps.get_version.outputs.tag }}/lua_${{ steps.get_version.outputs.tag }}_i686.zip)
+            - [lua_${{ steps.get_version.outputs.tag }}_x86_64.zip](https://github.com/oov/lua-5.1.5/releases/download/${{ steps.get_version.outputs.tag }}/lua_${{ steps.get_version.outputs.tag }}_x86_64.zip)
+            - [lua_${{ steps.get_version.outputs.tag }}_armv7.zip](https://github.com/oov/lua-5.1.5/releases/download/${{ steps.get_version.outputs.tag }}/lua_${{ steps.get_version.outputs.tag }}_armv7.zip)
+            - [lua_${{ steps.get_version.outputs.tag }}_aarch64.zip](https://github.com/oov/lua-5.1.5/releases/download/${{ steps.get_version.outputs.tag }}/lua_${{ steps.get_version.outputs.tag }}_aarch64.zip)

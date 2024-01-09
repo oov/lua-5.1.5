@@ -1,0 +1,34 @@
+name: windows-llvm-mingw
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: recursive
+      - name: Build
+        shell: bash
+        run: |
+          set -eu
+          mkdir -p build/tools
+          cd build/tools
+          
+          curl -OL https://github.com/mstorsjo/llvm-mingw/releases/download/20231128/llvm-mingw-20231128-ucrt-x86_64.zip
+          unzip -q $(ls -1 | grep ^llvm-mingw-.*\.zip) && mv $(ls -1d */ | grep ^llvm-mingw- | sed 's/\///') llvm-mingw
+          export PATH=$PWD/llvm-mingw/bin:$PATH
+          
+          cd ../..
+
+          for arch in i686 x86_64 armv7 aarch64; do
+            mingw32-make CC=$arch-w64-mingw32-clang mingw
+            mingw32-make install INSTALL_TOP=$PWD/build/$arch TO_BIN="lua.exe luac.exe lua51.dll"
+            cp src/lua51.dll build/$arch/bin
+            mingw32-make clean
+          done
